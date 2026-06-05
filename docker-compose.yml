@@ -1,0 +1,82 @@
+services:
+  headscale:
+    image: headscale/headscale:0.28
+    container_name: headscale
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - ./headscale-config:/etc/headscale
+      - headscale-data:/var/lib/headscale
+    command: serve
+    healthcheck:
+      test: ["CMD", "/ko-app/headscale", "health"]
+      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - headscale_net
+
+  headscale-mcp:
+    build: .
+    container_name: headscale-mcp
+    restart: unless-stopped
+    depends_on:
+      headscale:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      HEADSCALE_URL: "http://headscale:8080"
+      HEADSCALE_API_KEY: ${HEADSCALE_API_KEY:-}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-changeme}
+    networks:
+      - headscale_net
+
+  # ── Optional: Caddy reverse proxy (LAN + ACME via DNS challenge) ──────────
+  # Handles TLS termination for the Headscale control endpoint.
+  # Replace DUCKDNS_TOKEN with your provider token; swap the acme_dns
+  # directive for your DNS provider if not using DuckDNS.
+  caddy:
+    build: ./caddy
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - headscale_net
+
+  # ── Optional: Cloudflare Tunnel (ISP-blocked port workaround) ────────────
+  # Provides an outbound-only encrypted tunnel so Headscale is reachable
+  # even when the host ISP blocks inbound 80/443.
+  # Set CLOUDFLARE_TUNNEL_TOKEN after creating the tunnel in CF Zero Trust.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      headscale:
+        condition: service_healthy
+    networks:
+      - headscale_net
+
+networks:
+  headscale_net:
+    driver: bridge
+
+volumes:
+  headscale-data:
+  caddy_data:
+  caddy_config:
