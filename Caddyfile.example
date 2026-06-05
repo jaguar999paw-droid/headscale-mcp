@@ -1,0 +1,12 @@
+# Caddyfile example for headscale-mcp
+# Copy to Caddyfile and replace your-domain with your actual hostname.
+# Requires the DuckDNS Caddy module — see ./caddy/Dockerfile.
+# If using a different DNS provider, swap the acme_dns directive accordingly.
+
+{
+    acme_dns duckdns {env.DUCKDNS_TOKEN}
+}
+
+your-subdomain.duckdns.org {
+    reverse_proxy headscale:8080
+}
