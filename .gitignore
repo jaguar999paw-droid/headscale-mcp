@@ -216,3 +216,37 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── headscale-mcp project-specific ────────────────────────────────────────
+# Live secrets / environment
+.env
+
+# Headscale runtime config and data (use config.yaml.example instead)
+headscale-config/config.yaml
+headscale-config/noise.key
+headscale-config/acls.json
+headscale-data/
+
+# Operational / setup scripts (local to this host, not for distribution)
+fix-*.sh
+final-fix.sh
+fix-and-up.sh
+enable-forwarding.sh
+headscale-bootstrap.sh
+rebuild-mcp.sh
+startup.sh
+derp.sh
+server_patch.py
+
+# LibreOffice lock files and local docs
+.~lock.*
+*.docx
+
+# Typo Dockerfile copy
+Dockerfie
+
+# Caddy build context (not needed by downstream users)
+caddy/
+Caddyfile
+headscale-config/*.yaml
+!headscale-config/*.example
