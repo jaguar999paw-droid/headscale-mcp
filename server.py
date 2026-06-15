@@ -12,36 +12,40 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 # ── Config from environment ──────────────────────────────────────────────────
-HEADSCALE_URL   = os.environ.get("HEADSCALE_URL", "http://headscale:8080")
-MCP_AUTH_TOKEN  = os.environ.get("MCP_AUTH_TOKEN", "")
-# Headscale API key (set via `headscale apikeys create` then pass as env var)
+HEADSCALE_URL     = os.environ.get("HEADSCALE_URL", "http://headscale:8080")
+MCP_AUTH_TOKEN    = os.environ.get("MCP_AUTH_TOKEN", "")
 HEADSCALE_API_KEY = os.environ.get("HEADSCALE_API_KEY", "")
 
 mcp = FastMCP("headscale-mcp")
 
-def hs_headers():
+
+def hs_headers() -> dict:
     h = {"Content-Type": "application/json"}
     if HEADSCALE_API_KEY:
         h["Authorization"] = f"Bearer {HEADSCALE_API_KEY}"
     return h
 
+
+def _parse(r: httpx.Response) -> dict:
+    """Raise on HTTP error; return JSON body or a status sentinel."""
+    r.raise_for_status()
+    return r.json() if r.content else {"status": "ok"}
+
+
 def hs_get(path: str) -> dict:
     with httpx.Client(base_url=HEADSCALE_URL, headers=hs_headers(), timeout=15) as c:
-        r = c.get(path)
-        r.raise_for_status()
-        return r.json()
+        return _parse(c.get(path))
 
-def hs_post(path: str, payload: dict = None) -> dict:
+
+def hs_post(path: str, payload: dict | None = None) -> dict:
     with httpx.Client(base_url=HEADSCALE_URL, headers=hs_headers(), timeout=15) as c:
-        r = c.post(path, json=payload or {})
-        r.raise_for_status()
-        return r.json()
+        return _parse(c.post(path, json=payload or {}))
+
 
 def hs_delete(path: str) -> dict:
     with httpx.Client(base_url=HEADSCALE_URL, headers=hs_headers(), timeout=15) as c:
-        r = c.delete(path)
-        r.raise_for_status()
-        return r.json() if r.content else {"status": "deleted"}
+        return _parse(c.delete(path))
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +59,7 @@ def headscale_health() -> str:
     except Exception as e:
         return f"Headscale unreachable: {e}"
 
+
 # ── Users ─────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -66,6 +71,7 @@ def list_users() -> str:
         return "No users found."
     return json.dumps(users, indent=2)
 
+
 @mcp.tool()
 def create_user(name: str) -> str:
     """Create a new Headscale user/namespace.
@@ -73,8 +79,8 @@ def create_user(name: str) -> str:
     Args:
         name: Username to create (alphanumeric, hyphens allowed)
     """
-    data = hs_post("/api/v1/user", {"name": name})
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post("/api/v1/user", {"name": name}), indent=2)
+
 
 @mcp.tool()
 def delete_user(name: str) -> str:
@@ -83,8 +89,8 @@ def delete_user(name: str) -> str:
     Args:
         name: Username to delete
     """
-    data = hs_delete(f"/api/v1/user/{name}")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_delete(f"/api/v1/user/{name}"), indent=2)
+
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
@@ -95,25 +101,24 @@ def list_nodes(user: str = "") -> str:
     Args:
         user: Optional username to filter nodes
     """
-    path = "/api/v1/node"
-    if user:
-        path += f"?user={user}"
-    data = hs_get(path)
-    nodes = data.get("nodes", [])
+    path = "/api/v1/node" + (f"?user={user}" if user else "")
+    nodes = hs_get(path).get("nodes", [])
     if not nodes:
         return "No nodes registered."
-    summary = []
-    for n in nodes:
-        summary.append({
-            "id": n.get("id"),
-            "name": n.get("name"),
-            "user": n.get("user", {}).get("name"),
-            "ip": n.get("ipAddresses", []),
-            "online": n.get("online"),
+    summary = [
+        {
+            "id":       n.get("id"),
+            "name":     n.get("name"),
+            "user":     n.get("user", {}).get("name"),
+            "ip":       n.get("ipAddresses", []),
+            "online":   n.get("online"),
             "lastSeen": n.get("lastSeen"),
-            "expiry": n.get("expiry"),
-        })
+            "expiry":   n.get("expiry"),
+        }
+        for n in nodes
+    ]
     return json.dumps(summary, indent=2)
+
 
 @mcp.tool()
 def delete_node(node_id: str) -> str:
@@ -122,8 +127,8 @@ def delete_node(node_id: str) -> str:
     Args:
         node_id: Node ID to remove
     """
-    data = hs_delete(f"/api/v1/node/{node_id}")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_delete(f"/api/v1/node/{node_id}"), indent=2)
+
 
 @mcp.tool()
 def expire_node(node_id: str) -> str:
@@ -132,8 +137,8 @@ def expire_node(node_id: str) -> str:
     Args:
         node_id: Node ID to expire
     """
-    data = hs_post(f"/api/v1/node/{node_id}/expire")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post(f"/api/v1/node/{node_id}/expire"), indent=2)
+
 
 @mcp.tool()
 def move_node(node_id: str, user: str) -> str:
@@ -143,8 +148,8 @@ def move_node(node_id: str, user: str) -> str:
         node_id: Node ID to move
         user: Target username
     """
-    data = hs_post(f"/api/v1/node/{node_id}/user?user={user}")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post(f"/api/v1/node/{node_id}/user?user={user}"), indent=2)
+
 
 # ── Pre-auth keys ─────────────────────────────────────────────────────────────
 
@@ -155,11 +160,16 @@ def list_preauthkeys(user: str) -> str:
     Args:
         user: Username whose keys to list
     """
-    data = hs_get(f"/api/v1/preauthkey?user={user}")
-    return json.dumps(data.get("preAuthKeys", []), indent=2)
+    return json.dumps(hs_get(f"/api/v1/preauthkey?user={user}").get("preAuthKeys", []), indent=2)
+
 
 @mcp.tool()
-def create_preauthkey(user: str, reusable: bool = False, ephemeral: bool = False, expiration_seconds: int = 86400) -> str:
+def create_preauthkey(
+    user: str,
+    reusable: bool = False,
+    ephemeral: bool = False,
+    expiration_seconds: int = 86400,
+) -> str:
     """Create a pre-authentication key for node registration.
 
     Args:
@@ -171,14 +181,14 @@ def create_preauthkey(user: str, reusable: bool = False, ephemeral: bool = False
     from datetime import datetime, timedelta, timezone
     expiry = (datetime.now(timezone.utc) + timedelta(seconds=expiration_seconds)).isoformat()
     payload = {
-        "user": user,
-        "reusable": reusable,
-        "ephemeral": ephemeral,
+        "user":       user,
+        "reusable":   reusable,
+        "ephemeral":  ephemeral,
         "expiration": expiry,
-        "aclTags": []
+        "aclTags":    [],
     }
-    data = hs_post("/api/v1/preauthkey", payload)
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post("/api/v1/preauthkey", payload), indent=2)
+
 
 @mcp.tool()
 def expire_preauthkey(user: str, key: str) -> str:
@@ -188,16 +198,16 @@ def expire_preauthkey(user: str, key: str) -> str:
         user: Username the key belongs to
         key: The key string to expire
     """
-    data = hs_post("/api/v1/preauthkey/expire", {"user": user, "key": key})
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post("/api/v1/preauthkey/expire", {"user": user, "key": key}), indent=2)
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
 def list_routes() -> str:
     """List all advertised subnet routes across all nodes."""
-    data = hs_get("/api/v1/routes")
-    return json.dumps(data.get("routes", []), indent=2)
+    return json.dumps(hs_get("/api/v1/routes").get("routes", []), indent=2)
+
 
 @mcp.tool()
 def enable_route(route_id: str) -> str:
@@ -206,8 +216,8 @@ def enable_route(route_id: str) -> str:
     Args:
         route_id: Route ID to enable
     """
-    data = hs_post(f"/api/v1/routes/{route_id}/enable")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post(f"/api/v1/routes/{route_id}/enable"), indent=2)
+
 
 @mcp.tool()
 def disable_route(route_id: str) -> str:
@@ -216,16 +226,16 @@ def disable_route(route_id: str) -> str:
     Args:
         route_id: Route ID to disable
     """
-    data = hs_post(f"/api/v1/routes/{route_id}/disable")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post(f"/api/v1/routes/{route_id}/disable"), indent=2)
+
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
 
 @mcp.tool()
 def list_apikeys() -> str:
     """List all Headscale API keys."""
-    data = hs_get("/api/v1/apikey")
-    return json.dumps(data.get("apiKeys", []), indent=2)
+    return json.dumps(hs_get("/api/v1/apikey").get("apiKeys", []), indent=2)
+
 
 @mcp.tool()
 def create_apikey(expiration_days: int = 90) -> str:
@@ -236,28 +246,29 @@ def create_apikey(expiration_days: int = 90) -> str:
     """
     from datetime import datetime, timedelta, timezone
     expiry = (datetime.now(timezone.utc) + timedelta(days=expiration_days)).isoformat()
-    data = hs_post("/api/v1/apikey", {"expiration": expiry})
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_post("/api/v1/apikey", {"expiration": expiry}), indent=2)
+
 
 # ── DERP map ──────────────────────────────────────────────────────────────────
 
 @mcp.tool()
 def get_derp_map() -> str:
     """Retrieve the current DERP relay map from Headscale."""
-    data = hs_get("/api/v1/derp_map")
-    return json.dumps(data, indent=2)
+    return json.dumps(hs_get("/api/v1/derp_map"), indent=2)
+
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
-    """Reject requests without correct Bearer token."""
+    """Reject requests that do not carry the correct Bearer token."""
+
     async def dispatch(self, request: Request, call_next):
         if not MCP_AUTH_TOKEN:
             return await call_next(request)
-        auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {MCP_AUTH_TOKEN}":
+        if request.headers.get("Authorization") != f"Bearer {MCP_AUTH_TOKEN}":
             return Response("Unauthorized", status_code=401)
         return await call_next(request)
+
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
@@ -271,7 +282,7 @@ if __name__ == "__main__":
         import uvicorn
         app = mcp.streamable_http_app()
         app.add_middleware(TokenAuthMiddleware)
-        print(f"[headscale-mcp] HTTP transport on :{args.port}/mcp", flush=True)
+        print(f"[headscale-mcp] HTTP on :{args.port}/mcp", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=args.port)
     else:
         print("[headscale-mcp] stdio transport", flush=True)
