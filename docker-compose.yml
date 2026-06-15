@@ -29,15 +29,14 @@ services:
       - "8000:8000"
     environment:
       HEADSCALE_URL: "http://headscale:8080"
-      HEADSCALE_API_KEY: ${HEADSCALE_API_KEY:-}
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-changeme}
+      HEADSCALE_API_KEY: ${HEADSCALE_API_KEY:?HEADSCALE_API_KEY must be set}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN must be set}
     networks:
       - headscale_net
 
   # ── Optional: Caddy reverse proxy (LAN + ACME via DNS challenge) ──────────
   # Handles TLS termination for the Headscale control endpoint.
-  # Replace DUCKDNS_TOKEN with your provider token; swap the acme_dns
-  # directive for your DNS provider if not using DuckDNS.
+  # Swap the acme_dns directive for your DNS provider if not using DuckDNS.
   caddy:
     build: ./caddy
     container_name: caddy
@@ -47,7 +46,7 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN:-}
+      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN:?DUCKDNS_TOKEN must be set}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -59,13 +58,15 @@ services:
   # Provides an outbound-only encrypted tunnel so Headscale is reachable
   # even when the host ISP blocks inbound 80/443.
   # Set CLOUDFLARE_TUNNEL_TOKEN after creating the tunnel in CF Zero Trust.
+  # IMPORTANT: configure the tunnel's origin in the CF dashboard to point
+  # at http://headscale:8080, NOT http://localhost:8080.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN must be set}
     depends_on:
       headscale:
         condition: service_healthy
